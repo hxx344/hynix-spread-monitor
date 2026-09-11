@@ -19,8 +19,8 @@ export default function Dashboard() {
   const [range,setRange] = useState<number | null>(null);
   const [details,setDetails] = useState(false);
   const points = useMemo(() => selectRange(data?.points ?? [],range),[data,range]);
-  const latest = data?.points.at(-1);
-  const current = quote ?? latest;
+  // Current metrics must never silently substitute an hourly close for a quote.
+  const current = quote;
   const stats = useMemo(() => {
     if(!points.length) return null;
     const values = points.map(p=>p.premium);
@@ -32,7 +32,7 @@ export default function Dashboard() {
     <header className="topbar"><Link className="brand" href="/" aria-label="Hynix Spread 首页"><span className="brand-mark"><BarChart3 size={23}/></span><span>HYNIX<span className="brand-light"> / SPREAD</span></span></Link><div className="top-meta"><span>跨市场观察</span><span className="vertical-rule"/><span className="source-dot"/>Hyperliquid</div></header>
     <main>
       <div className="page-heading"><div><div className="eyebrow">SK HYNIX <span>/</span> 000660 · SKHY</div><h1>海力士 ADR 价差<span className="small-tag">上市以来</span></h1><p>正股与 ADR 同口径比较 · Hyperliquid 永续合约</p></div><div className="refresh-area"><button className="refresh-button" onClick={refresh} disabled={loading}><RefreshCw size={15} className={loading ? "spinning" : ""}/>{loading ? "加载行情" : "刷新行情"}</button><span>每 10 秒自动刷新</span></div></div>
-      <div className="data-status" role="status"><span className="status-left"><Clock3 size={14}/>{quote ? `实时报价 · 获取于 ${date(quote.fetchedAt,true)} ${new Date(quote.fetchedAt).toISOString().slice(11,19)} UTC` : data ? `${data.status === "snapshot" ? "已保存行情" : "最新行情"} · ${latest ? stamp(latest.time + 3_600_000) : ""} 小时收盘` : "正在获取并对齐两边的小时行情…"}</span><span className="status-right">USD · 1 股正股 = 10 份 ADR</span></div>
+      <div className="data-status" role="status"><span className="status-left"><Clock3 size={14}/>{quote ? `${quoteError ? "实时更新中断 · 上次获取" : "实时报价 · 获取于"} ${date(quote.fetchedAt,true)} ${new Date(quote.fetchedAt).toISOString().slice(11,19)} UTC` : quoteError ? "实时报价暂不可用 · 每 10 秒自动重试" : "正在获取实时报价 · 每 10 秒自动刷新"}</span><span className="status-right">USD · 1 股正股 = 10 份 ADR</span></div>
       {quoteError && <div className="notice error" role="alert"><Info size={16}/>{quoteError}</div>}
       {error && <div className="notice error" role="alert"><Info size={16}/>历史行情：{error}{data ? " 当前保留上次成功加载的数据。" : ""}</div>}
       {data?.status === "snapshot" && <div className="notice"><Info size={16}/>历史行情接口暂不可用，图表展示 {stamp(data.fetchedAt)} 获取的真实行情快照。</div>}

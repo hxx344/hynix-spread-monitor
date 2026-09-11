@@ -84,7 +84,7 @@ export default function SpreadChart({ data, loading, range, onRangeChange }: {
 
   return <section className="chart-panel" aria-label="历史价差图表">
     <div className="chart-heading">
-      <div><div className="section-kicker">PREMIUM MONITOR</div><h2>{mode === "price" ? "同口径价格走势" : "价差走势"}</h2></div>
+      <div><div className="section-kicker">PREMIUM MONITOR</div><h2>{mode === "price" ? "同口径价格走势" : "价差走势"}</h2><p className="history-timestamp">小时收盘图 · 每分钟检查更新{latest ? ` · 最近收盘 ${stamp(latest.time + 3_600_000)}` : ""}</p></div>
       <div className="segmented range-control" aria-label="时间范围">{ranges.map(r => <button key={r.label} aria-pressed={range === r.days} className={range === r.days ? "active" : ""} onClick={() => onRangeChange(r.days)}>{r.label}</button>)}</div>
     </div>
     <div className="chart-toolbar">
