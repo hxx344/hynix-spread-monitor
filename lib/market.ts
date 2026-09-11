@@ -24,7 +24,7 @@ export function alignCandles(ordinary: Candle[], adr: Candle[], now = Date.now()
   })).values()].sort((a,b) => a.time - b.time);
 }
 
-export function selectRange(points: Point[], days: number | null): Point[] {
+export function selectRange<T extends Point>(points: T[], days: number | null): T[] {
   if (!days || !points.length) return points;
   const start = points.at(-1)!.time - days * 86_400_000;
   return points.filter(p => p.time >= start);

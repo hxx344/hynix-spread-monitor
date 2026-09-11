@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Activity, ArrowDownRight, ArrowUpRight, ChevronDown, Clock3, Info, RefreshCw, MoveRight, BarChart3 } from "lucide-react";
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { dailyPoints, selectRange, type MarketData, type Point } from "../lib/market";
+import SpreadChart, { ranges } from "./spread-chart";
+import { dailyPoints, selectRange, type MarketData } from "../lib/market";
 
-const ranges = [{ label: "1 周", days: 7 }, { label: "1 月", days: 30 }, { label: "全部", days: null }];
+const EMPTY_POINTS: never[] = [];
 const money = (v: number | undefined) => v === undefined ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
 const percent = (v: number | undefined) => v === undefined ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 const signedMoney = (v: number | undefined) => v === undefined ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${money(Math.abs(v))}`;
@@ -21,18 +21,12 @@ async function requestMarket(signal?: AbortSignal): Promise<MarketData> {
   return next;
 }
 
-function HoverCard({active,payload}: {active?: boolean; payload?: {payload: Point | null}[]}) {
-  if(!active || !payload?.length || !payload[0].payload) return null;
-  const p = payload[0].payload;
-  return <div className="chart-tooltip"><strong>{stamp(p.time)}</strong><div><span>ADR 溢价率</span><b className={p.premium >= 0 ? "positive" : "negative"}>{percent(p.premium)}</b></div><div><span>ADR</span><b>{money(p.adr)}</b></div><div><span>正股 ÷ 10</span><b>{money(p.equivalent)}</b></div><div><span>每份价差</span><b>{signedMoney(p.spread)}</b></div></div>;
-}
-
 export default function Dashboard() {
   const [data,setData] = useState<MarketData | null>(null);
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
   const [range,setRange] = useState<number | null>(null);
-  const [mode,setMode] = useState<"premium"|"spread"|"price">("premium");
+
   const [details,setDetails] = useState(false);
   const refresh = async () => {
     try { setData(await requestMarket()); }
@@ -48,8 +42,6 @@ export default function Dashboard() {
     return () => controller.abort();
   },[]);
   const points = useMemo(() => selectRange(data?.points ?? [],range),[data,range]);
-  // Explicit null records break the line wherever an entire hour is missing.
-  const chartPoints = useMemo(() => points.flatMap((p,i) => i && p.time-points[i-1].time>3_600_000 ? [{time:points[i-1].time+3_600_000,adr:null,equivalent:null,spread:null,premium:null},p] : [p]),[points]);
   const latest = data?.points.at(-1);
   const stats = useMemo(() => {
     if(!points.length) return null;
@@ -72,14 +64,7 @@ export default function Dashboard() {
         <article className="metric"><div className="metric-label"><span className="legend-dot ordinary"/>正股折算价格<span className="ticker">SKHX</span></div><div className="metric-value">{money(latest?.equivalent)}</div><div className="metric-foot">正股 {money(latest?.ordinary)} <span>÷ 10</span></div></article>
         <article className="metric"><div className="metric-label">区间平均溢价<span className="ticker">{ranges.find(r=>r.days===range)?.label}</span></div><div className="metric-value">{percent(stats?.mean)}</div><div className="metric-foot">{stats ? `${percent(stats.min)} 至 ${percent(stats.max)}` : "等待行情数据"}</div></article>
       </section>
-      <section className="chart-panel" aria-label="历史价差图表">
-        <div className="chart-heading"><div><div className="section-kicker">PREMIUM MONITOR</div><h2>{mode === "price" ? "同口径价格走势" : "价差走势"}</h2></div><div className="segmented range-control" aria-label="时间范围">{ranges.map(r=><button key={r.label} aria-pressed={range===r.days} className={range===r.days ? "active" : ""} onClick={()=>setRange(r.days)}>{r.label}</button>)}</div></div>
-        <div className="chart-toolbar"><div className="chart-tabs" aria-label="图表指标">{([{id:"premium",label:"溢价率"},{id:"spread",label:"美元价差"},{id:"price",label:"价格对比"}] as const).map(tab=><button key={tab.id} aria-pressed={mode===tab.id} className={mode===tab.id ? "active" : ""} onClick={()=>setMode(tab.id)}>{tab.label}</button>)}</div><span className="chart-unit">{mode === "premium" ? "% · ADR 相对正股" : "USD / 份 ADR"}</span></div>
-        <div className="chart-container">
-          {!data ? <div className="empty-chart"><Activity size={28}/><p>{loading ? "正在载入上市以来的历史行情" : "暂无可用行情"}</p><span>{loading ? "统一美元口径，对齐小时收盘时间" : "点击刷新行情重试"}</span></div> : <ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartPoints} margin={{top:25,right:14,left:0,bottom:6}} accessibilityLayer><defs><linearGradient id="premiumFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#53d8b2" stopOpacity={0.21}/><stop offset="100%" stopColor="#53d8b2" stopOpacity={0.01}/></linearGradient></defs><CartesianGrid stroke="#27313b" strokeDasharray="3 5" vertical={false}/><XAxis dataKey="time" type="number" domain={["dataMin","dataMax"]} tickFormatter={t=>date(t)} stroke="#81909f" axisLine={false} tickLine={false} minTickGap={65} tick={{fontSize:12}} dy={10}/><YAxis orientation="right" width={68} domain={mode === "price" ? ["auto","auto"] : [Math.min(0,mode === "premium" ? (stats?.min??0) : Math.min(...points.map(p=>p.spread))),"auto"]} tickFormatter={v=>mode === "premium" ? `${v.toFixed(0)}%` : `$${v.toFixed(0)}`} stroke="#81909f" axisLine={false} tickLine={false} tick={{fontSize:12}}/><Tooltip content={<HoverCard/>} cursor={{stroke:"#667b8d",strokeDasharray:"3 3"}}/>{mode === "price" ? <><Line type="linear" dataKey="adr" stroke="#65a7ff" strokeWidth={2} dot={false} isAnimationActive={false}/><Line type="linear" dataKey="equivalent" stroke="#dbab6d" strokeWidth={2} dot={false} isAnimationActive={false}/></> : <><ReferenceLine y={0} stroke="#728494" strokeDasharray="4 4"/><Area type="linear" dataKey={mode} stroke="#53d8b2" strokeWidth={2} fill="url(#premiumFill)" isAnimationActive={false}/></>}</ComposedChart></ResponsiveContainer>}
-        </div>
-        <div className="chart-caption"><span>{mode === "price" ? <><i className="legend-dot adr"/>ADR <i className="legend-dot ordinary"/>正股 ÷ 10</> : <><i className="legend-dot premium"/>ADR {mode === "premium" ? "溢价率" : "每份美元价差"}<span className="zero-line"/>0 = 平价</>}</span><span>{points.length ? `${date(points[0].time,true)} — ${date(points.at(-1)!.time,true)} · ${points.length.toLocaleString()} 个小时` : "小时收盘 · UTC"}</span></div>
-      </section>
+      <SpreadChart data={data?.points ?? EMPTY_POINTS} loading={loading} range={range} onRangeChange={setRange} />
       <div className="bottom-grid"><section className="table-panel"><div className="section-heading"><h2>近期观察</h2><span>每日最后共同小时 · 起点 UTC</span></div><div className="table-scroll"><table><thead><tr><th>日期</th><th>ADR</th><th>正股 ÷ 10</th><th>每份价差</th><th>溢价率</th></tr></thead><tbody>{recent.map(p=><tr key={p.time}><td>{date(p.time,true)}<small>{new Date(p.time).toISOString().slice(11,16)}</small></td><td>{money(p.adr)}</td><td>{money(p.equivalent)}</td><td>{signedMoney(p.spread)}</td><td><span className={`premium-pill ${p.premium>=0 ? "positive" : "negative"}`}>{p.premium>=0 ? <ArrowUpRight size={13}/> : <ArrowDownRight size={13}/>}{percent(p.premium)}</span></td></tr>)}{!recent.length && <tr><td colSpan={5} className="empty-table">{loading ? "正在加载记录…" : "暂无记录"}</td></tr>}</tbody></table></div></section>
       <aside className="method-panel"><div className="section-heading"><h2>如何比较</h2><span className="info-icon"><Info size={17}/></span></div><div className="conversion"><div><span className="instrument-label">韩国正股</span><strong>1 <small>股</small></strong><span>000660 · KRX</span></div><MoveRight size={22}/><div><span className="instrument-label">美国 ADR</span><strong>10 <small>份</small></strong><span>SKHY · NASDAQ</span></div></div><div className="formula"><span>ADR 溢价率</span><code>(ADR ÷ (正股美元价 ÷ 10) − 1) × 100%</code></div><p className="method-note">正数表示 ADR 溢价，负数表示折价。两条行情均来自 Hyperliquid 永续合约；价差包含合约基差，并非交易所现货价差。</p><div className="listing-note"><span>ADR 首次交易</span><b>2026.07.10</b></div></aside></div>
       <section className="source-panel"><button className="source-toggle" aria-expanded={details} onClick={()=>setDetails(!details)}><span><Info size={16}/>数据来源与覆盖范围</span><ChevronDown size={17} className={details ? "rotated" : ""}/></button>{details && <div className="source-content"><div><h3>行情来源</h3><p>Hyperliquid HIP-3 / XYZ：xyz:SKHX（正股美元代理）与 xyz:SKHY（ADR 代理）。SKHX 已包含韩元兑美元换算。使用已结束的 1 小时 K 线收盘价，仅匹配双方都有报价的时段；不补齐缺失报价。图中时间为该小时起点。</p><a href="https://docs.trade.xyz/perpetuals/specifications-and-schedules/specification-index" target="_blank" rel="noreferrer">XYZ 合约说明 <ArrowUpRight size={13}/></a></div><div><h3>历史覆盖</h3><p>ADR 于 2026 年 7 月 10 日以 SKHYV 首次交易。小时图从当日 14:00 UTC 开始，排除上市前的合约交易。{data ? `当前共同可用行情始于 ${stamp(data.firstAvailable)}。取数时间：${stamp(data.fetchedAt)}。` : "正在检查历史覆盖范围。"} 接口保留最近 5,000 根小时线，已保存的历史与新行情合并展示。休市时永续合约仍可交易。</p><a href="https://depositaryreceipts.citi.com/adr/guides/pgm_dispabook.aspx?cusip=78392B206&pageId=15&subpageID=111" target="_blank" rel="noreferrer">Citi ADR 换算比例 <ArrowUpRight size={13}/></a><a className="second-source" href="https://news.skhynix.com/en/skhynix-lists-adrs-on-nasdaq/" target="_blank" rel="noreferrer">上市公告 <ArrowUpRight size={13}/></a></div></div>}</section>
