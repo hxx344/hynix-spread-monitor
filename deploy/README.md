@@ -1,45 +1,43 @@
-# Linux 部署：Node.js + systemd
+# Linux 一键部署
 
 此版本用一个常驻 Node.js 进程同时提供 Next.js 网页、配置 API 和每 10 秒运行的告警监控。无需 Cloudflare、Docker、数据库或飞书应用 App ID。关闭网页后仍可告警。生产运行使用单实例，不要用 PM2 cluster 或让多个服务共用数据目录。
 
-## 1. 安装并构建
+## 1. 执行一条命令
 
-准备 Node.js 22.13 或更高版本、npm、Git 和 systemd。建议使用仍获支持的 Node.js LTS；`node` 需要在 systemd 的系统 PATH 中，不能只在交互式 shell 的 nvm 环境可见。若路径不同，请修改服务文件的 `ExecStart`。
+支持 Ubuntu 22.04 / 24.04、Debian 12 / 13，x86_64 或 ARM64，需使用 systemd。建议至少 2 GB 内存、5 GB 可用磁盘；安装时需访问 GitHub、nodejs.org、npm 和系统软件源。
 
-仓库：[hxx344/hynix-spread-monitor](https://github.com/hxx344/hynix-spread-monitor)。将本仓库克隆到 `/opt/hynix-spread`，然后执行：
+在服务器终端执行：
 
 ```bash
-cd /opt/hynix-spread
-npm ci
-npm run build:linux
-sudo useradd --system --home /opt/hynix-spread --shell /usr/sbin/nologin hynix
-sudo chown -R hynix:hynix /opt/hynix-spread
-sudo install -m 600 .env.linux.example /etc/hynix-spread.env
-sudoedit /etc/hynix-spread.env
+curl -fsSL https://raw.githubusercontent.com/hxx344/hynix-spread-monitor/main/deploy/install.sh | bash
 ```
 
-已有 `hynix` 用户时跳过创建。设置 `APP_PASSWORD`（至少 12 个字符），保留 `HOST=127.0.0.1` 可通过反向代理访问。需要直接在内网访问时可改为 `HOST=0.0.0.0`。网页和配置接口统一使用 `APP_USERNAME` / `APP_PASSWORD` 登录。
+root 直接运行；普通用户会通过 sudo 提权，可能需要输入系统密码。不需要事先安装 Node.js、Git、Docker 或数据库。极简系统若没有 curl，先执行 `apt-get update && apt-get install -y curl`（普通用户在两个命令前加 sudo）。
 
-## 2. 启用服务
+脚本会自动安装项目专用 Node.js 24.15.0（校验官方 SHA-256，不替换系统 Node.js）、下载公开仓库的 main 最新提交、安装依赖并构建、创建服务用户、生成登录密码、启动服务并设置开机启动。完成后会显示访问地址、用户名和密码。
+
+打开 `http://服务器IP:3000`，使用显示的账号密码登录。远程访问需在云安全组及服务器防火墙放行 TCP 3000。首次安装也可指定端口，例如 8080：
 
 ```bash
-sudo install -m 644 deploy/hynix-spread.service /etc/systemd/system/hynix-spread.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now hynix-spread
+curl -fsSL https://raw.githubusercontent.com/hxx344/hynix-spread-monitor/main/deploy/install.sh | bash -s -- --port 8080
+```
+
+已有 `/etc/hynix-spread.env` 时完整保留原配置，包括密码和监听地址，`--port` 不会覆盖已有端口。旧版手工安装也可直接运行同一命令升级；原先仅监听 `127.0.0.1` 的服务继续通过原反向代理访问。
+
+## 2. 管理服务
+
+```bash
 sudo systemctl status hynix-spread
-curl http://127.0.0.1:3000/healthz
-```
-
-服务随系统启动、失败后自动重启。`/healthz` 返回 `{"status":"ok"}` 代表服务存活；取价和飞书状态在网页“飞书阈值告警”内查看。日志：
-
-```bash
+sudo systemctl restart hynix-spread
 sudo journalctl -u hynix-spread -n 100 --no-pager
 sudo journalctl -u hynix-spread -f
 ```
 
-可按 `deploy/nginx.conf.example` 配置反向代理，换成自己的域名并启用 HTTPS，再从浏览器打开。使用 Basic 登录时，公网访问应通过 HTTPS，避免以明文传输密码。
+网页和接口使用同一组登录信息。密码保存在仅 root 可读的 `/etc/hynix-spread.env`，可执行 `sudo cat /etc/hynix-spread.env` 查看；用 `sudoedit /etc/hynix-spread.env` 修改后重启服务。密码至少 12 个字符，建议保持为字母数字。此文件使用普通 `KEY=value` 格式，不写 shell 命令。
 
-不安装 systemd 的临时本机运行方式：复制 `.env.linux.example` 为 `.env.linux`，填写密码，把 `ALERT_DATA_DIR` 改为 `./runtime-data`，执行 `npm run start:linux`。
+`/healthz` 只表示服务存活；行情获取和飞书状态在网页“飞书阈值告警”内查看。公网使用时，可按 `deploy/nginx.conf.example` 配置已有域名的 HTTPS 反向代理，以加密登录信息。
+
+从本地源码安装：在项目目录执行 `sudo bash deploy/install.sh --source-dir "$PWD"`。不安装 systemd 的临时开发运行方式：使用 Node.js 22.13+，执行 `npm ci` 和 `npm run build:linux`，复制 `.env.linux.example` 为 `.env.linux`，填写密码，把 `ALERT_DATA_DIR` 改为 `./runtime-data`，再执行 `npm run start:linux`。
 
 ## 3. 配置飞书和多档阈值
 
@@ -72,18 +70,13 @@ sudo systemctl stop hynix-spread
 sudo cp -p /var/lib/hynix-spread/alerts.json /var/lib/hynix-spread/alerts.backup.json
 sudo systemctl start hynix-spread
 
-# 在源码目录升级：停机后更新依赖和构建，成功后启动
-sudo systemctl stop hynix-spread
-cd /opt/hynix-spread
-sudo -u hynix git pull --ff-only
-sudo -u hynix npm ci
-sudo -u hynix npm run build:linux
-sudo systemctl start hynix-spread
+# 升级：与首次安装完全相同
+curl -fsSL https://raw.githubusercontent.com/hxx344/hynix-spread-monitor/main/deploy/install.sh | bash
 ```
 
-此仓库为私有仓库，执行拉取的 Linux 用户需要配置自己的 GitHub 读取凭据（例如只读部署 SSH 密钥）；开发电脑的登录状态不会自动迁移到服务器。也可由有仓库权限的部署用户负责拉取，再把源码交给 `hynix` 用户构建。
+仓库公开，安装和升级无需 GitHub 登录。配置放在 `/etc/hynix-spread.env`，数据放在 `/var/lib/hynix-spread`，项目版本放在 `/opt/hynix-spread/releases`，`/opt/hynix-spread/current` 指向正在运行的版本。
 
-升级期间服务暂停；只有依赖安装和构建都成功后才启动。升级不要删除 `/var/lib/hynix-spread`。行情档案的覆盖范围及更新方式见根目录 README。
+升级在独立目录中完成下载和构建，此时原服务继续工作；只在切换时短暂停机。启动后检查登录、告警 API 和运行进程，新版本失败时恢复原版本及服务文件。保留旧版本目录用于排查，可在确认升级稳定后按需清理旧目录，保留 `current` 指向的目录；不要删除 `/var/lib/hynix-spread`。行情档案的覆盖范围及更新方式见根目录 README。
 
 ## 两种运行入口
 

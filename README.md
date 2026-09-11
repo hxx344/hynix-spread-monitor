@@ -2,7 +2,19 @@
 
 中文行情看板：溢价率、美元价差、同口径价格对比；支持一周、一月、全部历史及最近每日观察。
 
-支持 **Linux + Node.js + systemd** 常驻运行，后台每 10 秒检查实时溢价率并发送飞书告警。前端可设置多档双向阈值、冷却时间与回差，配置和触发状态持久化，关闭网页后继续工作。完整安装、配置和升级步骤见 [Linux 部署指南](deploy/README.md)。
+支持 **Linux + Node.js + systemd** 常驻运行，后台每 10 秒检查实时溢价率并发送飞书告警。前端可设置多档双向阈值、冷却时间与回差，配置和触发状态持久化，关闭网页后继续工作。
+
+## Linux 一键部署
+
+在 Ubuntu 22.04 / 24.04 或 Debian 12 / 13 服务器执行（支持 x86_64、ARM64）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hxx344/hynix-spread-monitor/main/deploy/install.sh | bash
+```
+
+脚本自动安装专用 Node.js、构建项目、生成登录密码并启动 systemd 服务。普通用户会通过 sudo 提权；root 可直接运行。完成后打开 `http://服务器IP:3000`，使用终端显示的账号密码登录，再在前端填写飞书 Webhook 和告警阈值。
+
+**升级时再次执行同一条命令**，已有密码和告警配置会保留；新版本启动失败会自动恢复原服务。自定义端口、服务管理和 HTTPS 配置见 [Linux 部署指南](deploy/README.md)。
 
 ## 运行
 
